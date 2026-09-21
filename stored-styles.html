@@ -114,7 +114,13 @@ const COLS = {K2:5,K3:6,K4:7,K7:8};
 const BLANK = "No panel";
 
 let store = new URLSearchParams(location.search).get("store");
+if(!STORES.includes(store)){ try{ store = localStorage.getItem("storedStylesStore"); }catch(e){} }
 if(!STORES.includes(store)) store = STORES[0];
+function rememberStore(){
+  try{ localStorage.setItem("storedStylesStore",store); }catch(e){}
+  try{ history.replaceState(null,"","?store="+store); }catch(e){}
+}
+rememberStore();
 let staff = false, cat = "All", q = "";
 let picked = new Set();
 
@@ -192,6 +198,8 @@ function render(){
     ? list.length + " on hand"
     : Object.keys(map).filter(s=>{const r=DATA.find(x=>x[0]===s);return r&&inStore(r);}).length + " stored";
   el("mode").classList.toggle("on",staff);
+  el("store").disabled = staff;
+  el("mode").textContent = staff ? "Exit staff" : "Staff";
 
   if(!list.length){
     el("grid").innerHTML="";
@@ -232,7 +240,7 @@ function updateTray(){
   el("trayN").innerHTML = n + " selected<small>" +
     (away?away+" to store away":"") + (away&&putBack?" · ":"") +
     (putBack?putBack+" to put back":"") + "</small>";
-  el("trayGo").textContent = away ? "Store away" : "Put back";
+  el("trayGo").textContent = (away ? "Store away" : "Put back") + " · " + store;
 }
 
 function who(){
@@ -250,6 +258,9 @@ async function apply(){
   const name = who();
   if(!name) return;
   const map = of(store), list = [...picked];
+  const away = list.filter(s=>!(s in map)).length, back = list.length - away;
+  const msg = [away?away+" to store away":"", back?back+" to put back":""].filter(Boolean).join(", ");
+  if(!confirm("Save to " + store + "?\n\n" + msg + "\nStaff: " + name)) return;
   el("trayGo").disabled = true;
   let done = 0, failed = 0;
   for(const sku of list){
@@ -267,13 +278,14 @@ async function apply(){
 }
 
 el("store").innerHTML = STORES.map(s=>`<option${s===store?" selected":""}>${s}</option>`).join("");
-el("store").onchange = e => { store = e.target.value; picked.clear(); render(); };
+el("store").onchange = e => { store = e.target.value; rememberStore(); picked.clear(); render(); };
 el("mode").onclick = () => {
   if(!staff && STAFF_PIN){
     const p = prompt("Staff password","");
     if(p !== STAFF_PIN){ if(p!==null) alert("Wrong password"); return; }
   }
   staff = !staff; picked.clear(); render();
+  if(staff) logVisit("staff");
 };
 el("q").oninput = e => { q = e.target.value; render(); };
 el("chips").onclick = e => { const b=e.target.closest(".chip"); if(b){cat=b.dataset.c; render();} };
@@ -288,8 +300,29 @@ el("grid").onclick = e => {
 el("trayClear").onclick = () => { picked.clear(); render(); };
 el("trayGo").onclick = () => { if(!syncing) apply(); };
 
+function device(){
+  let d = "";
+  try{ d = localStorage.getItem("storedStylesDevice")||""; }catch(e){}
+  if(!d){
+    d = Math.random().toString(36).slice(2,10);
+    try{ localStorage.setItem("storedStylesDevice",d); }catch(e){}
+  }
+  return d;
+}
+function logVisit(mode){
+  if(!API || API.indexOf("http")!==0) return;
+  const key = "storedStylesLogged:" + mode;
+  try{ if(sessionStorage.getItem(key)) return; sessionStorage.setItem(key,"1"); }catch(e){}
+  let name = "";
+  try{ name = localStorage.getItem("storedStylesWho")||""; }catch(e){}
+  fetch(API,{method:"POST",headers:{"Content-Type":"text/plain;charset=utf-8"},
+    body:JSON.stringify({action:"visit",store:store,device:device(),mode:mode,by:name,
+      ua:/Mobi|Android|iPhone/i.test(navigator.userAgent)?"Phone":"Computer"})}).catch(()=>{});
+}
+
 render();
 pull();
+logVisit("view");
 document.addEventListener("visibilitychange",()=>{ if(!document.hidden && !syncing) pull(); });
 </script>
 </body>
